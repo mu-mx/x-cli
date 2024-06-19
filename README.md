@@ -11,6 +11,11 @@ x-cli  创建项目脚手架
  npm link 作为全局的工具使用
 
 
+ cxc  安装下载模板
+
+ cxcp 也可以安装下载模板
+
+
 ##  yalc
 使用 yalc 可以实现类似 npm link 的功能
 
