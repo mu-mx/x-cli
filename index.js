@@ -20,7 +20,11 @@ import {
   reset,
   yellow,
 } from 'kolorist';
-import downloadGitRepo from 'git-down-repo';
+import simpleGit from 'simple-git';
+import os from 'os';
+import fsExtra from 'fs-extra';
+
+const git = simpleGit();
 
 const argv = minimist(process.argv.slice(2), {
   default: { help: false },
@@ -225,38 +229,22 @@ function pkgFromUserAgent(userAgent) {
   };
 }
 
-function setupReactSwc(root, isTs) {
-  editFile(path.resolve(root, 'package.json'), (content) => {
-    return content.replace(
-      /"@vitejs\/plugin-react": ".+?"/,
-      `"@vitejs/plugin-react-swc": "^3.5.0"`,
-    );
-  });
-  editFile(
-    path.resolve(root, `vite.config.${isTs ? 'ts' : 'js'}`),
-    (content) => {
-      return content.replace(
-        '@vitejs/plugin-react',
-        '@vitejs/plugin-react-swc',
-      );
-    },
-  );
-}
-
-function editFile(file, callback) {
-  const content = fs.readFileSync(file, 'utf-8');
-  fs.writeFileSync(file, callback(content), 'utf-8');
-}
-
 async function download(tem, packageName) {
-  console.log('packageName - >:', packageName);
-  console.log('tem - >:', tem);
-  // 拼接下载路径 这里放自己的模板仓库url
-  const requestUrl = `mu-mx/qs-template/`;
+  const repoLocalPath = path.join(os.tmpdir(), 'temp-project');
+  const destinationPath = packageName;
 
-  await downloadGitRepo(requestUrl + tem, packageName, function (err) {
-    console.log(err ? 'Error' : 'Success')
-  })
+  await git.clone('https://github.com/mu-mx/qs-template.git', repoLocalPath);
+
+  console.log('已成功下载仓库');
+
+  const sourceDir = path.join(repoLocalPath, tem);
+
+  // 从临时文件夹复制文件夹到目标文件夹
+  await fsExtra.copy(sourceDir, destinationPath, { overwrite: true });
+
+  // 删除临时文件夹
+  await fsExtra.remove(repoLocalPath);
+
   console.log('模板准备完成!');
 }
 
@@ -286,7 +274,7 @@ async function init() {
         {
           type: argTargetDir ? null : 'text',
           name: 'projectName',
-          message: reset('Project name:'),
+          message: reset('项目名称: '),
           initial: defaultTargetDir,
           onState: (state) => {
             targetDir = formatTargetDir(state.value) || defaultTargetDir;
@@ -297,22 +285,20 @@ async function init() {
             !fs.existsSync(targetDir) || isEmpty(targetDir) ? null : 'select',
           name: 'overwrite',
           message: () =>
-            (targetDir === '.'
-              ? 'Current directory'
-              : `Target directory "${targetDir}"`) +
-            ` is not empty. Please choose how to proceed:`,
+            (targetDir === '.' ? '当前目录' : `目标目录 "${targetDir}"`) +
+            ` 不是空的请选择如何继续 :`,
           initial: 0,
           choices: [
             {
-              title: 'Remove existing files and continue',
+              title: '删除现有文件并继续',
               value: 'yes',
             },
             {
-              title: 'Cancel operation',
+              title: '取消操作',
               value: 'no',
             },
             {
-              title: 'Ignore files and continue',
+              title: '忽略文件并继续',
               value: 'ignore',
             },
           ],
@@ -320,7 +306,7 @@ async function init() {
         {
           type: (_, { overwrite }) => {
             if (overwrite === 'no') {
-              throw new Error(red('✖') + ' Operation cancelled');
+              throw new Error(red('✖') + ' Operation cancelled 操作已取消');
             }
             return null;
           },
@@ -329,10 +315,11 @@ async function init() {
         {
           type: () => (isValidPackageName(getProjectName()) ? null : 'text'),
           name: 'packageName',
-          message: reset('Package name:'),
+          message: reset('包名称:'),
           initial: () => toValidPackageName(getProjectName()),
           validate: (dir) =>
-            isValidPackageName(dir) || 'Invalid package.json name',
+            isValidPackageName(dir) ||
+            'Invalid package.json name  package.json名称无效',
         },
         {
           type:
@@ -340,10 +327,8 @@ async function init() {
           name: 'framework',
           message:
             typeof argTemplate === 'string' && !TEMPLATES.includes(argTemplate)
-              ? reset(
-                  `"${argTemplate}" isn't a valid template. Please choose from below: `,
-                )
-              : reset('Select a framework:'),
+              ? reset(`"${argTemplate}" 不是有效的模板。请从下面选择 : `)
+              : reset('选择框架 :'),
           initial: 0,
           choices: FRAMEWORKS.map((framework) => {
             const frameworkColor = framework.color;
@@ -357,7 +342,7 @@ async function init() {
           type: (framework) =>
             framework && framework.variants ? 'select' : null,
           name: 'variant',
-          message: reset('Select a variant:'),
+          message: reset('选择一个变量 :'),
           choices: (framework) =>
             framework.variants.map((variant) => {
               const variantColor = variant.color;
@@ -370,7 +355,7 @@ async function init() {
       ],
       {
         onCancel: () => {
-          throw new Error(red('✖') + ' Operation cancelled');
+          throw new Error(red('✖') + ' 操作已取消');
         },
       },
     );
@@ -383,7 +368,6 @@ async function init() {
   const { framework, overwrite, packageName, variant } = result;
 
   const root = path.join(cwd, targetDir);
-  console.log('targetDir - >:', targetDir);
 
   if (overwrite === 'yes') {
     emptyDir(root);
@@ -400,7 +384,9 @@ async function init() {
   }
 
   const pkgInfo = pkgFromUserAgent(process.env.npm_config_user_agent);
+
   const pkgManager = pkgInfo ? pkgInfo.name : 'npm';
+
   const isYarn1 = pkgManager === 'yarn' && pkgInfo?.version.startsWith('1.');
 
   const { customCommand } =
@@ -446,29 +432,18 @@ async function init() {
     process.exit(status ?? 0);
   }
 
-  console.log(`\nScaffolding project in ${root}...`);
+  console.log(`\n 脚手架工程安装中 ${root}...`);
 
   await download(template, root);
 
-  // const templateDir = path.resolve(
-  //   fileURLToPath(import.meta.url),
-  //   '../..',
-  //   `template-${template}`,
-  // );
-
-  // const write = (file, content) => {
-  //   const targetPath = path.join(root, renameFiles[file] ?? file);
-  //   if (content) {
-  //     fs.writeFileSync(targetPath, content);
-  //   } else {
-  //     copy(path.join(templateDir, file), targetPath);
-  //   }
-  // };
-
-  // const files = fs.readdirSync(templateDir);
-  // for (const file of files.filter((f) => f !== 'package.json')) {
-  //   write(file);
-  // }
+  const write = (file, content) => {
+    const targetPath = path.join(root, file);
+    if (content) {
+      fs.writeFileSync(targetPath, content);
+    } else {
+      copy(path.join(templateDir, file), targetPath);
+    }
+  };
 
   const pkg = JSON.parse(
     fs.readFileSync(path.join(root, `package.json`), 'utf-8'),
@@ -478,12 +453,10 @@ async function init() {
 
   write('package.json', JSON.stringify(pkg, null, 2) + '\n');
 
-  // if (isReactSwc) {
-  //   setupReactSwc(root, template.endsWith('-ts'));
-  // }
-
   const cdProjectName = path.relative(cwd, root);
-  console.log(`\nDone. Now run:\n`);
+
+  console.log(`\n 现在运行: \n`);
+
   if (root !== cwd) {
     console.log(
       `  cd ${
