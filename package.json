@@ -1,10 +1,11 @@
 {
   "name": "x-cli",
+  "version": "0.0.1",
   "module": "index.ts",
   "type": "module",
   "bin": {
-    "x-create": "index.js",
-    "xc": "index.js"
+    "cxcp": "index.js",
+    "cxc": "index.js"
   },
   "devDependencies": {
     "@types/bun": "latest"
